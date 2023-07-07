@@ -4,8 +4,8 @@ import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 
 from .auth import share_internally_show
+from .actions import sync_package_sharing_policy
 from .config import SHARE_INTERNALLY_FIELD
-from .package_sharing_service import PackageSharingService
 from .sharing_policy_dataset_form import SharingPolicyDatasetForm
 
 
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IAuthFunctions)
+    plugins.implements(plugins.IActions)
     plugins.implements(plugins.IDatasetForm)
     plugins.implements(plugins.IPackageController, inherit=True)
 
@@ -28,7 +29,12 @@ class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
     # IAuthFunctions
 
     def get_auth_functions(self):
-        return {'share_internally_show': share_internally_show}
+        return {share_internally_show.__name__: share_internally_show}
+
+    # IActions
+
+    def get_actions(self):
+        return {sync_package_sharing_policy.__name__: sync_package_sharing_policy}
 
     # IPackageController
 
@@ -41,17 +47,10 @@ class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
         return pkg_dict
 
     def _update_policy(self, context, pkg_dict, delete=False):
-        if "organization" not in pkg_dict:
-            organization_show = toolkit.get_action("organization_show")
-            pkg_dict["organization"] = organization_show(context, {
-                "id": pkg_dict["owner_org"]
-            })
-
-        service = PackageSharingService()
-        if _is_sharing_internally(pkg_dict) and not delete:
-            service.share_package(pkg_dict)
-        else:
-            service.unshare_package(pkg_dict)
+        sync_package_sharing_policy(context, {
+            'package_id': pkg_dict['id'],
+            'share': _is_sharing_internally(pkg_dict) and not delete
+        })
 
     def after_create(self, context, pkg_dict):
         self._update_policy(context, pkg_dict)
