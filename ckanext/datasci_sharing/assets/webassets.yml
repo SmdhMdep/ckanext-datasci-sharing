@@ -1,0 +1,14 @@
+# datasci_sharing-js:
+#   filter: rjsmin
+#   output: ckanext-datasci_sharing/%(version)s-datasci_sharing.js
+#   contents:
+#     - js/datasci_sharing.js
+#   extra:
+#     preload:
+#       - base/main
+
+# datasci_sharing-css:
+#   filter: cssrewrite
+#   output: ckanext-datasci_sharing/%(version)s-datasci_sharing.css
+#   contents:
+#     - css/datasci_sharing.css

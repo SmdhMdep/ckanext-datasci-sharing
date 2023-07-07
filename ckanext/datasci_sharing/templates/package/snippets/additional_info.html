@@ -1,0 +1,8 @@
+{% ckan_extends %}
+
+{% block extras %}
+<tr>
+  <th scope="row" class="dataset-label">{{ _("Shared with SMDH data scientists") }}</th>
+  <td class="dataset-details">{{ pkg_dict.share_internally }}</td>
+</tr>
+{% endblock %}
