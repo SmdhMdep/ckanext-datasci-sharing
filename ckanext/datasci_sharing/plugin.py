@@ -3,6 +3,8 @@ import logging
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 
+from .auth import share_internally_show
+from .config import SHARE_INTERNALLY_FIELD
 from .sharing_policy_dataset_form import SharingPolicyDatasetForm
 
 
@@ -11,7 +13,9 @@ logger = logging.getLogger(__name__)
 
 class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
     plugins.implements(plugins.IConfigurer)
+    plugins.implements(plugins.IAuthFunctions)
     plugins.implements(plugins.IDatasetForm)
+    plugins.implements(plugins.IPackageController, inherit=True)
 
     # IConfigurer
 
@@ -19,3 +23,18 @@ class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
         toolkit.add_template_directory(config_, 'templates')
         toolkit.add_public_directory(config_, 'public')
         toolkit.add_resource('fanstatic', 'datasci_sharing')
+
+    # IAuthFunctions
+
+    def get_auth_functions(self):
+        return {'share_internally_show': share_internally_show}
+
+    # IPackageController
+
+    def after_show(self, context, pkg_dict):
+        try:
+            toolkit.check_access('share_internally_show', context, pkg_dict)
+        except toolkit.NotAuthorized:
+            pkg_dict.pop(SHARE_INTERNALLY_FIELD)
+
+        return pkg_dict

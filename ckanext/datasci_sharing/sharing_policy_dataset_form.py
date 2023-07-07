@@ -1,7 +1,6 @@
 from ckan.plugins import toolkit
 
-
-SHARE_INTERNALLY_FIELD = 'share_internally'
+from .config import SHARE_INTERNALLY_FIELD
 
 
 class SharingPolicyDatasetForm(toolkit.DefaultDatasetForm):
