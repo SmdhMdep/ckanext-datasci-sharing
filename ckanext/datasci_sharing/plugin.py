@@ -3,12 +3,15 @@ import logging
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 
+from .sharing_policy_dataset_form import SharingPolicyDatasetForm
+
 
 logger = logging.getLogger(__name__)
 
 
-class DatasciSharingPlugin(plugins.SingletonPlugin):
+class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
     plugins.implements(plugins.IConfigurer)
+    plugins.implements(plugins.IDatasetForm)
 
     # IConfigurer
 
