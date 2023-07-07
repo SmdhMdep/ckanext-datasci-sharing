@@ -18,26 +18,16 @@ def _policy_target_bucket_name(document: PolicyDocumentObject):
 
 class SharingPolicyWriter:
     """Helper class to update sharing permissions."""
-    def __init__(self, *, bucket_name: Optional[str] = None, document: Optional[dict] = None):
-        self._document = (
-            wrap_policy_document(copy.deepcopy(document))
-            if document is not None
-            else PolicyDocumentObject.new(bucket_name)
-        )
-        self._bucket_name = bucket_name or _policy_target_bucket_name(self._document)
+    # TODO encapsulate this class' functionality within the domain objects
+    def __init__(self, *, document: PolicyDocumentObject):
+        self._document = document
+        self._bucket_name = _policy_target_bucket_name(self._document)
         self._closed = False
 
     def update_prefix_policy(self, prefix: str, *, allow: bool) -> 'SharingPolicyWriter':
-        self._check_not_closed()
-
         self._update_listing_statement(prefix, allow)
         self._update_actions_statement(prefix, allow)
-
-        try:
-            self._document.raise_for_size()
-        except PolicyDocumentSizeLimitExceeded:
-            self.close()
-            raise
+        self._document.raise_for_size()
 
     def _update_listing_statement(self, prefix: str, allow: bool):
         listing = self._document.statement.first_where(sid=PolicyDocumentObject.LISTING_SID)
@@ -71,12 +61,3 @@ class SharingPolicyWriter:
         return [
             '/'.join(components[:index+1]) for index in range(len(components))
         ]
-
-    def close(self) -> PolicyDocumentObject:
-        self._check_not_closed()
-        self._closed = True
-        return self._document
-
-    def _check_not_closed(self):
-        if self._closed:
-            raise RuntimeError("cannot operate with a closed writer")

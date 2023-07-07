@@ -8,8 +8,12 @@ SHARE_INTERNALLY_FIELD = 'share_internally'
 
 class Config:
     @property
-    def sharing_policy_arn(self) -> str:
-        return ckan_config['ckanext.datasci_sharing.policy_arn']
+    def group_name(self) -> str:
+        return ckan_config['ckanext.datasci_sharing.group_name']
+    
+    @property
+    def bucket_name(self) -> str:
+        return ckan_config['ckanext.datasci_sharing.bucket_name']
 
     @property
     def aws_session_options(self) -> dict:
