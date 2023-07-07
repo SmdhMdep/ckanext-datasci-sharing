@@ -5,6 +5,7 @@ import ckan.plugins.toolkit as toolkit
 
 from .auth import share_internally_show
 from .config import SHARE_INTERNALLY_FIELD
+from .package_sharing_service import PackageSharingService
 from .sharing_policy_dataset_form import SharingPolicyDatasetForm
 
 
@@ -38,3 +39,32 @@ class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
             pkg_dict.pop(SHARE_INTERNALLY_FIELD)
 
         return pkg_dict
+
+    def _update_policy(self, context, pkg_dict, delete=False):
+        if "organization" not in pkg_dict:
+            organization_show = toolkit.get_action("organization_show")
+            pkg_dict["organization"] = organization_show(context, {
+                "id": pkg_dict["owner_org"]
+            })
+
+        service = PackageSharingService()
+        if _is_sharing_internally(pkg_dict) and not delete:
+            service.share_package(pkg_dict)
+        else:
+            service.unshare_package(pkg_dict)
+
+    def after_create(self, context, pkg_dict):
+        self._update_policy(context, pkg_dict)
+
+    def after_update(self, context, pkg_dict):
+        self._update_policy(context, pkg_dict)
+
+    def after_delete(self, context, pkg_dict):
+        self._update_policy(context, pkg_dict, delete=True)
+
+
+def _is_sharing_internally(pkg_dict: dict):
+    for extra in pkg_dict['extras']:
+        if extra['key'] == SHARE_INTERNALLY_FIELD:
+            return extra['value']
+    return False
