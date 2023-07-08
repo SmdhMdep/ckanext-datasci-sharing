@@ -41,8 +41,9 @@ class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
     def after_show(self, context, pkg_dict):
         try:
             toolkit.check_access('share_internally_show', context, pkg_dict)
+            pkg_dict.setdefault(SHARE_INTERNALLY_FIELD, False)
         except toolkit.NotAuthorized:
-            pkg_dict.pop(SHARE_INTERNALLY_FIELD)
+            pkg_dict.pop(SHARE_INTERNALLY_FIELD, None)
 
         return pkg_dict
 

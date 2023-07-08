@@ -1,8 +1,7 @@
-import copy
 import logging
-from typing import Optional, List
+from typing import List
 
-from .policy_elements import PolicyDocumentObject, PolicyDocumentSizeLimitExceeded, wrap_policy_document
+from .policy_elements import PolicyDocumentObject
 
 
 logger = logging.getLogger(__name__)

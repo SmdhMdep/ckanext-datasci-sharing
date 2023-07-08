@@ -1,8 +1,10 @@
 {% ckan_extends %}
 
 {% block extras %}
+{% if 'share_internally' in pkg_dict %}
 <tr>
   <th scope="row" class="dataset-label">{{ _("Shared with SMDH data scientists") }}</th>
   <td class="dataset-details">{{ pkg_dict.share_internally }}</td>
 </tr>
+{% endif %}
 {% endblock %}

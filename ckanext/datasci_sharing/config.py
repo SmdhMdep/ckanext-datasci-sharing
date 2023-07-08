@@ -10,7 +10,7 @@ class Config:
     @property
     def group_name(self) -> str:
         return ckan_config['ckanext.datasci_sharing.group_name']
-    
+
     @property
     def bucket_name(self) -> str:
         return ckan_config['ckanext.datasci_sharing.bucket_name']

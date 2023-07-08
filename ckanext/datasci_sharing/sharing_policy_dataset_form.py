@@ -26,7 +26,8 @@ class SharingPolicyDatasetForm(toolkit.DefaultDatasetForm):
         schema.update({
             SHARE_INTERNALLY_FIELD: [
                 toolkit.get_converter('convert_from_extras'),
-                toolkit.get_converter('default')(False)
+                toolkit.get_converter('default')(False),
+                toolkit.get_validator('boolean_validator'),
             ],
         })
         return schema
