@@ -1,15 +1,15 @@
 from contextlib import contextmanager
 import copy
 import logging
-import json
-from typing import Any, Tuple
+from typing import Any, Tuple, Optional, Iterator
 
 import boto3
 import boto3.session
 
 from .config import config
 from .distributed_lock import distributed_lock
-from .policy_elements import PolicyDocumentSizeLimitExceeded, wrap_policy_document, PolicyDocumentObject
+from .sharing_policy_document import PolicyDocumentSizeLimitExceeded, SharingPolicyDocument
+from .sharing_policy_record import SharingPolicyRecord
 
 
 logger = logging.getLogger(__name__)
@@ -42,39 +42,47 @@ class SharingPolicyRepository:
                 latest_sequence, latest_policy = sequence, policy
         return (latest_sequence, latest_policy)
 
-    def _create_policy(self, sequence, document: PolicyDocumentObject):
+    def _create_policy(self, sequence, document: SharingPolicyDocument):
         policy = self._resource.create_policy(
             PolicyName=f'{self._group_name}Policy{sequence}',
             PolicyDocument=document.as_json(),
         )
         self._resource.Group(self._group_name).attach_policy(PolicyArn=policy.arn)
 
-    def _update_policy(self, policy: Policy, document: PolicyDocumentObject):
+    def _update_policy(self, policy: Policy, document: SharingPolicyDocument):
         old_version = policy.default_version
         logger.debug('creating new version for updated policy document')
         policy.create_version(PolicyDocument=document.as_json(), SetAsDefault=True)
         logger.debug('deleting old policy document version')
         old_version.delete()
 
-    def policy_document(self):
-        """A generator of all documents that need to be updated to change the
-        sharing policy.
+    def _upsert(self, sequence: int, policy: Optional[Policy], record: SharingPolicyRecord):
+        document = (
+            SharingPolicyDocument.new(self._bucket_name) if policy is None
+            else SharingPolicyDocument(copy.deepcopy(policy.default_version.document))
+        )
+        if sequence == -1:
+            document.allow_buckets_listing()
+        record.apply(document)
 
-        Currently this only updates one document, unless that document has reached
-        it's capacity then a new document is created and yielded.
-        """
+        if policy is None:
+            self._create_policy(sequence, document)
+        else:
+            self._update_policy(policy, document)
+
+    @contextmanager
+    def sharing_policy(self) -> Iterator[SharingPolicyRecord]:
+        record = SharingPolicyRecord()
+        yield record
         with distributed_lock(type(self).__name__):
             (sequence, policy) = self._get_latest_policy()
             if policy is not None:
+                raw_document = policy.default_version.document
+                document = SharingPolicyDocument(copy.deepcopy(raw_document))
                 try:
-                    raw_document = policy.default_version.document
-                    document = wrap_policy_document(copy.deepcopy(raw_document))
-                    yield document
-                    self._update_policy(policy, document)
+                    self._upsert(sequence, policy, record)
                 except PolicyDocumentSizeLimitExceeded:
                     policy = None
-
+            # can be set to None in the previous if statement
             if policy is None:
-                document = PolicyDocumentObject.new(self._bucket_name)
-                yield document
-                self._create_policy(sequence + 1, document)
+                self._upsert(sequence, policy, record)
