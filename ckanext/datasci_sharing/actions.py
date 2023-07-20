@@ -17,6 +17,8 @@ class SyncPackageSharingPolicyDataDict(TypedDict):
 
 def sync_package_sharing_policy(context, data: SyncPackageSharingPolicyDataDict):
     package = toolkit.get_action('package_show')(context, {'id': data['package_id']})
+    toolkit.check_access('share_internally_update', context, package)
+
     repo = SharingPolicyRepository(config.group_name, config.bucket_name)
     logger.debug(
         f'updating package %s sharing policy to %s',

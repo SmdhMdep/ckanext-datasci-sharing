@@ -3,7 +3,7 @@ import logging
 import ckan.plugins as plugins
 import ckan.plugins.toolkit as toolkit
 
-from .auth import share_internally_show
+from .auth import share_internally_show, share_internally_update
 from .actions import sync_package_sharing_policy
 from .config import SHARE_INTERNALLY_FIELD
 from .sharing_policy_dataset_form import SharingPolicyDatasetForm
@@ -29,7 +29,10 @@ class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
     # IAuthFunctions
 
     def get_auth_functions(self):
-        return {share_internally_show.__name__: share_internally_show}
+        return {
+            share_internally_show.__name__: share_internally_show,
+            share_internally_update.__name__: share_internally_update,
+        }
 
     # IActions
 
