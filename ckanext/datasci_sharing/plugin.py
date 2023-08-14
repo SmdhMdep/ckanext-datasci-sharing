@@ -6,6 +6,7 @@ import ckan.plugins.toolkit as toolkit
 from .auth import share_internally_show, share_internally_update
 from .actions import sync_package_sharing_policy
 from .config import SHARE_INTERNALLY_FIELD
+from .model import package_sharing_policy_table
 from .sharing_policy_dataset_form import SharingPolicyDatasetForm
 
 
@@ -13,11 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
+    plugins.implements(plugins.IConfigurable)
     plugins.implements(plugins.IConfigurer)
     plugins.implements(plugins.IAuthFunctions)
     plugins.implements(plugins.IActions)
     plugins.implements(plugins.IDatasetForm)
     plugins.implements(plugins.IPackageController, inherit=True)
+
+    # IConfigurable
+
+    def configure(self, config):
+        if not package_sharing_policy_table.exists():
+            package_sharing_policy_table.create()
 
     # IConfigurer
 
