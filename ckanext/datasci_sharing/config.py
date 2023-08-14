@@ -25,14 +25,14 @@ class Config:
 
     @property
     def aws_access_key_id(self) -> str:
-        return (
+        return _not_empty_or_none(
             ckan_config.get('ckanext.datasci_sharing.aws_access_key_id')
             or self._aws_session_options().get('aws_access_key_id')
         )
 
     @property
     def aws_secret_access_key(self) -> str:
-        return (
+        return _not_empty_or_none(
             ckan_config.get('ckanext.datasci_sharing.aws_secret_access_key')
             or self._aws_session_options().get('aws_secret_access_key')
         )
@@ -41,6 +41,10 @@ class Config:
         return literal_eval(ckan_config.get(
             'ckanext.datasci_sharing.aws_session_options', '{}'
         ))
+
+
+def _not_empty_or_none(value):
+    return value if value else None
 
 
 config = Config()
