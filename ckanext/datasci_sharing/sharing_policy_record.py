@@ -1,30 +1,41 @@
-from typing import List, Tuple
-import os
+import logging
 
 from .sharing_policy_document import SharingPolicyDocument
+from .model import PackageSharingPolicy
+
+
+logger = logging.getLogger(__name__)
 
 
 class SharingPolicyRecord:
-    def __init__(self):
-        # Array of tuples, each tuple contains package and
-        # boolean value of whether to share or not
-        self._policy = []
+    # TODO remove me
+    def __init__(self, package_prefix: str, package_policy: PackageSharingPolicy):
+        self._package_prefix = package_prefix
+        self._policy = package_policy
+        self._handle = self._policy.handle
+        self._allowed = self._policy.allowed
+        self._recorded_allowed = self._allowed
 
-    def update(self, pkg_dict: dict, allow: bool):
-        """Record an update to the policy for the given package."""
-        prefix = self._package_prefix(pkg_dict)
-        self._policy.append((prefix, allow))
+    @property
+    def handle(self) -> str:
+        return self._handle
 
-    def apply(self, document: SharingPolicyDocument) -> List[Tuple[str, bool]]:
+    @handle.setter
+    def handle(self, value):
+        self._handle = value
+
+    def update(self, allow: bool):
+        """Record an update to the policy for the package."""
+        self._recorded_allowed = allow
+
+    def has_changes(self) -> bool:
+        return self._recorded_allowed != self._allowed
+
+    def apply(self, document: SharingPolicyDocument):
         """Apply recorded changes to the policy to the document passed as argument."""
-        for prefix, allow in self._policy:
-            document.update_prefix(prefix, allow)
+        document.update_prefix(self._package_prefix, self._recorded_allowed)
 
-    def _package_prefix(self, pkg_dict: dict):
-        """Returns a bucket prefix for the given package."""
-        # TODO convert this into a strategy (injected through the plugins system)
-        # so that multiple plugins can share the same strategy.
-        return os.path.join(
-            pkg_dict['organization']['name'],
-            pkg_dict['name'],
-        )
+        self._allowed = self._recorded_allowed
+        self._handle = document.handle
+        self._policy.allowed = self._allowed
+        self._policy.handle = self._handle

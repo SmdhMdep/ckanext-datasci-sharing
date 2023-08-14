@@ -44,16 +44,14 @@ class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
     def after_show(self, context, pkg_dict):
         try:
             toolkit.check_access('share_internally_show', context, pkg_dict)
-            pkg_dict.setdefault(SHARE_INTERNALLY_FIELD, False)
         except toolkit.NotAuthorized:
             pkg_dict.pop(SHARE_INTERNALLY_FIELD, None)
 
         return pkg_dict
 
-    def _update_policy(self, context, pkg_dict, delete=False):
+    def _update_policy(self, context, pkg_dict):
         sync_package_sharing_policy(context, {
             'package_id': pkg_dict['id'],
-            'share': _is_sharing_internally(pkg_dict) and not delete
         })
 
     def after_create(self, context, pkg_dict):
@@ -63,11 +61,4 @@ class DatasciSharingPlugin(plugins.SingletonPlugin, SharingPolicyDatasetForm):
         self._update_policy(context, pkg_dict)
 
     def after_delete(self, context, pkg_dict):
-        self._update_policy(context, pkg_dict, delete=True)
-
-
-def _is_sharing_internally(pkg_dict: dict):
-    for extra in pkg_dict['extras']:
-        if extra['key'] == SHARE_INTERNALLY_FIELD:
-            return extra['value']
-    return False
+        self._update_policy(context, pkg_dict)

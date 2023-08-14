@@ -82,9 +82,15 @@ _PACKAGES_ACTIONS_SID = 'C'
 
 
 class SharingPolicyDocument(_PolicyDocumentDict):
+    __slots__ = ('_data', 'handle')
+
+    def __init__(self, data, handle):
+        super().__init__(data)
+        self.handle = handle
+
     @staticmethod
-    def new(bucket_name: str) -> 'SharingPolicyDocument':
-        return _new_policy_document_object(bucket_name)
+    def new(bucket_name: str, handle: str) -> 'SharingPolicyDocument':
+        return _new_policy_document_object(bucket_name, handle)
 
     def bucket_arn(self) -> str:
         return self._statement(_PACKAGES_LISTING_SID).resources().single()
@@ -153,7 +159,7 @@ class SharingPolicyDocument(_PolicyDocumentDict):
         return prefixes
 
     def _null_resource(self):
-        return _null_object_key(self.bucket_arn())
+        return _null_object(self.bucket_arn())
 
 
 class _PolicyDocumentStatement(_PolicyDocumentDict):
@@ -168,7 +174,7 @@ _PolicyDocumentStringArray = _PolicyDocumentArray[str, str]
 _PolicyDocumentStatementArray = _PolicyDocumentArray[_PolicyDocumentStatement, dict]
 
 
-def _new_policy_document_object(bucket_name: str) -> SharingPolicyDocument:
+def _new_policy_document_object(bucket_name: str, handle: str) -> SharingPolicyDocument:
     bucket_arn = f'arn:aws:s3:::{bucket_name}'
     return SharingPolicyDocument({
         'Version': '2012-10-17',
@@ -197,16 +203,16 @@ def _new_policy_document_object(bucket_name: str) -> SharingPolicyDocument:
                 'Resource': [
                     # Since you can't have a statement with no resources, we add
                     # a dummy resource name for an object that does not exist.
-                    _null_object_key(bucket_arn),
+                    _null_object(bucket_arn),
                     # add the resources shared. typically this is the bucket arn with the
                     # package path prefix and /* ({org_name}/{package_name}/*) to allow
                     # access to all resources within the package.
                 ],
             },
         ]
-    })
+    }, handle)
 
-def _null_object_key(bucket_arn: str) -> str:
+def _null_object(bucket_arn: str) -> str:
     return f'{bucket_arn}/__null_object__'
 
 _BUCKETS_LISTING_STATEMENT = {

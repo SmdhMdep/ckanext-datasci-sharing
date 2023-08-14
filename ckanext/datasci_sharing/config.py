@@ -1,4 +1,5 @@
 from ast import literal_eval
+import functools
 
 from ckan.plugins.toolkit import config as ckan_config
 
@@ -8,8 +9,8 @@ SHARE_INTERNALLY_FIELD = 'share_internally'
 
 class Config:
     @property
-    def group_name(self) -> str:
-        return ckan_config['ckanext.datasci_sharing.group_name']
+    def iam_resources_prefix(self) -> str:
+        return ckan_config['ckanext.datasci_sharing.iam_resources_prefix']
 
     @property
     def bucket_name(self) -> str:
