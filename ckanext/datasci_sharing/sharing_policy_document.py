@@ -75,25 +75,25 @@ class _PolicyDocumentArray(abc.Sequence, _PolicyDocumentBase[t.List[_V]], t.Gene
         for item in self._data:
             yield _wrap_policy_document(item)
 
-_BUCKETS_LISTING_SID = 'AllowUserToSeeBucketListInTheConsole'
-_PACKAGES_LISTING_SID = 'AllowListingOfSharedPackages'
-_PACKAGES_ACTIONS_SID = 'AllowAllS3ActionsInSharedPackages'
+
+_BUCKETS_LISTING_SID = 'A'
+_PACKAGES_LISTING_SID = 'B'
+_PACKAGES_ACTIONS_SID = 'C'
 
 
 class SharingPolicyDocument(_PolicyDocumentDict):
     @staticmethod
-    def new(bucket_name) -> 'SharingPolicyDocument':
+    def new(bucket_name: str) -> 'SharingPolicyDocument':
         return _new_policy_document_object(bucket_name)
 
-    def bucket_name(self) -> str:
-        arn = self._statement(_PACKAGES_LISTING_SID).resources().single()
-        return arn.split(":", maxsplit=5)[-1]
+    def bucket_arn(self) -> str:
+        return self._statement(_PACKAGES_LISTING_SID).resources().single()
 
     def size(self) -> int:
         """Returns the count of characters within the document excluding whitespace."""
         return len(json.dumps(self._data, separators=(',', ':')))
 
-    def raise_for_size(self):
+    def _raise_for_size(self):
         """Ensures that the document size limit has not been exceeded."""
         PolicyDocumentSizeLimitExceeded.check(self)
 
@@ -121,9 +121,14 @@ class SharingPolicyDocument(_PolicyDocumentDict):
         resources_set = set(actions.resources())
         if allow:
             resources_set.add(self._resource_arn_from_prefix(prefix))
+            resources_set.discard(self._null_resource())
         else:
             resources_set.discard(self._resource_arn_from_prefix(prefix))
+            if not resources_set:
+                resources_set.add(self._null_resource())
         actions.resources().unwrap()[:] = list(resources_set)
+
+        self._raise_for_size()
 
     def _statements(self) -> '_PolicyDocumentStatementArray':
         return self['Statement']
@@ -132,18 +137,23 @@ class SharingPolicyDocument(_PolicyDocumentDict):
         return self._statements().first_where(Sid=sid)
 
     def _resource_arn_from_prefix(self, prefix: str) -> str:
-        return f'arn:aws:s3:::{self.bucket_name()}/{prefix}/*'
+        return f'{self.bucket_arn()}/{prefix}/*'
 
     def _prefixes_chain_from_prefix(self, prefix: str) -> t.List[str]:
         """
         Returns slices of the prefix.
 
-        For example, the prefix `'/a/b/c'` will be converted into the list `['/a/', '/a/b/', '/a/b/c/', '/a/b/c/*']`.
+        For example, the prefix `'/a/b/c'` will be converted into the list `['/a/', '/a/b/', '/a/b/c/*']`.
         """
         components = prefix.split('/')
-        return [
-            '/'.join(components[:index+1]) for index in range(len(components))
+        prefixes = [
+            '/'.join(components[:index+1]) + '/' for index in range(len(components))
         ]
+        prefixes[-1] = prefixes[-1] + '*'
+        return prefixes
+
+    def _null_resource(self):
+        return _null_object_key(self.bucket_arn())
 
 
 class _PolicyDocumentStatement(_PolicyDocumentDict):
@@ -171,7 +181,7 @@ def _new_policy_document_object(bucket_name: str) -> SharingPolicyDocument:
                 'Condition': {
                     'StringLike': {
                         # add the package prefix. typically this is the package path prefix
-                        # i.e. {org_name}/, {org_name}/{package_name}/ and {org_name}/{package_name}/*.
+                        # i.e. {org_name}/ and {org_name}/{package_name}/*.
                         # all of the prefixes leading to the package prefix must be included,
                         # this is because users need to be able to list the content of
                         # the prefix to be able to reach the package through the console.
@@ -187,7 +197,7 @@ def _new_policy_document_object(bucket_name: str) -> SharingPolicyDocument:
                 'Resource': [
                     # Since you can't have a statement with no resources, we add
                     # a dummy resource name for an object that does not exist.
-                    f'{bucket_arn}/__null_object__',
+                    _null_object_key(bucket_arn),
                     # add the resources shared. typically this is the bucket arn with the
                     # package path prefix and /* ({org_name}/{package_name}/*) to allow
                     # access to all resources within the package.
@@ -196,6 +206,8 @@ def _new_policy_document_object(bucket_name: str) -> SharingPolicyDocument:
         ]
     })
 
+def _null_object_key(bucket_arn: str) -> str:
+    return f'{bucket_arn}/__null_object__'
 
 _BUCKETS_LISTING_STATEMENT = {
     'Sid': _BUCKETS_LISTING_SID,
