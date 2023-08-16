@@ -16,7 +16,7 @@ from .sharing_policy_record import SharingPolicyRecord
 Policy = Any # Type alias for the policy resource from boto3
 Group = Any # Type alias for the group resource from boto3
 
-_GROUP_PATH_PREFIX = "/smdh-aep/datasci-sharing-groups/"
+_RESOURCES_PATH_PREFIX = "ckan-smdh/datasci-sharing"
 _GROUP_POLICIES_LIMIT = 10
 
 
@@ -54,10 +54,18 @@ def _policy_seq(policy: Optional[Policy]) -> int:
 def _group_seq(name_prefix: str, group: Optional[Group]):
     return -1 if group is None else int(group.name.strip(name_prefix))
 
+def _join_to_path(*args: str):
+    """Join args into a path prefix as required by AWS."""
+    path = '/'.join(
+        c for arg in args for c in arg.split('/') if c
+    )
+    return f'/{path}/'
+
 
 class SharingPolicyRepository:
     def __init__(self, resources_prefix: str, bucket_name: str):
-        self.group_name_prefix = f"{resources_prefix}Group"
+        self._group_name_prefix = f"{resources_prefix}Group"
+        self._path_prefix = _join_to_path(_RESOURCES_PATH_PREFIX, resources_prefix, '')
         self._bucket_name = bucket_name
         self._session = _create_boto3_session()
         self._resource = self._session.resource('iam')
@@ -67,14 +75,14 @@ class SharingPolicyRepository:
         the last group.
         """
         if sequence is not None:
-            name = f'{self.group_name_prefix}{sequence}'
+            name = f'{self._group_name_prefix}{sequence}'
             return sequence, self._resource.Group(name)
         else:
             latest_sequence, latest_group = -1, None
-            groups = self._resource.groups.filter(PathPrefix=_GROUP_PATH_PREFIX)
+            groups = self._resource.groups.filter(PathPrefix=self._path_prefix)
             for group in groups:
                 # all groups end with a number
-                sequence = int(group.name.strip(self.group_name_prefix))
+                sequence = int(group.name.strip(self._group_name_prefix))
                 if latest_sequence < sequence:
                     latest_group = group
             return latest_sequence, latest_group
@@ -87,8 +95,8 @@ class SharingPolicyRepository:
             return -1, None
         elif sequence is not None:
             base_arn = group.arn.rpartition(":")[0]
-            arn = f'{base_arn}:policy/{group.name}Policy{sequence}'
-            return sequence, self._resource.Policy(arn)
+            path = _join_to_path(self._path_prefix, f'{group.name}Policy{sequence}')
+            return sequence, self._resource.Policy(f'{base_arn}:policy/{path[1:-1]}')
         else:
             latest_sequence, latest_policy = -1, None
             for policy in group.attached_policies.all():
@@ -100,10 +108,10 @@ class SharingPolicyRepository:
             return latest_sequence, latest_policy
 
     def _create_group(self, prev_group: Optional[Group]) -> Group:
-        sequence = _group_seq(prev_group) + 1
+        sequence = _group_seq(self._group_name_prefix, prev_group) + 1
         group = self._resource.create_group(
-            GroupName=f"{self.group_name_prefix}{sequence}",
-            Path=_GROUP_PATH_PREFIX,
+            GroupName=f"{self._group_name_prefix}{sequence}",
+            Path=self._path_prefix,
         )
         if prev_group is not None:
             for user in prev_group.users.all():
@@ -111,10 +119,11 @@ class SharingPolicyRepository:
         return group
 
     def _create_policy(self, group: Group, p_seq: int, document: SharingPolicyDocument) -> Policy:
-        g_seq = _group_seq(self.group_name_prefix, group)
+        g_seq = _group_seq(self._group_name_prefix, group)
         policy = self._resource.create_policy(
-            PolicyName=f'{self.group_name_prefix}{g_seq}Policy{p_seq}',
+            PolicyName=f'{self._group_name_prefix}{g_seq}Policy{p_seq}',
             PolicyDocument=document.as_json(),
+            Path=self._path_prefix,
         )
         group.attach_policy(PolicyArn=policy.arn)
         return policy
@@ -131,7 +140,7 @@ class SharingPolicyRepository:
             record: SharingPolicyRecord,
             is_policy_full=False,
         ):
-        g_seq, p_seq = _group_seq(self.group_name_prefix, group), _policy_seq(policy)
+        g_seq, p_seq = _group_seq(self._group_name_prefix, group), _policy_seq(policy)
         should_create_policy = policy is None or is_policy_full
         should_create_group = group is None or should_create_policy and p_seq + 1 == _GROUP_POLICIES_LIMIT
 
