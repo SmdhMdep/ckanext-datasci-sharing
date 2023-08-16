@@ -1,5 +1,15 @@
 {% ckan_extends %}
 
 {% block package_basic_fields_custom %}
-  {{ form.checkbox('share_internally', label=_('Share this dataset internally with SMDH data scientists'), id='field-share_internally', value="True", checked=data.share_internally) }}
+  {% set disabled = not (data.id and data.state == "active") %}
+  {% set attrs = {'disabled': true} if disabled else {} %}
+  {% call form.checkbox('share_internally', label=_('Share this dataset internally with SMDH data scientists'), id='field-share_internally', value="True", checked=data.share_internally, attrs=attrs) %}
+    {% if disabled %}
+      <span class="info-block info-inline"><i class="fa fa-info-circle"></i> You can edit this field after you create the dataset.</span>
+    {% endif %}
+    <div class="alert alert-info" style="display: flex; gap: 0.7em; align-items:center; margin-top: 0.5em;">
+      <i class="fa fa-info-circle" style="font-size: 1.5em;"></i>
+      <span>By sharing this dataset with SMDH data scientists they will be able to externally access your dataset. This does not affect dataset visibility. If you want to provide access to the dataset from the Asset Explorer, update the dataset visibility or add them as allowed users.</span>
+    </div>
+  {% endcall %}
 {% endblock %}
