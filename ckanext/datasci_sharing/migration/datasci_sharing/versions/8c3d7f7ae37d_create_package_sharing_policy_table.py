@@ -23,7 +23,7 @@ def upgrade():
         sa.Column(
             'package_id',
             sa.UnicodeText,
-            sa.ForeignKey(model.package_table.columns['id']),
+            sa.ForeignKey(model.package_table.columns['id'], ondelete='CASCADE'),
             primary_key=True,
             default=types.make_uuid,
         ),

@@ -19,7 +19,7 @@ package_sharing_policy_table = Table(
     Column(
         'package_id',
         UnicodeText,
-        ForeignKey(model.package_table.columns['id']),
+        ForeignKey(model.package_table.columns['id'], ondelete="CASCADE"),
         primary_key=True,
         default=types.make_uuid,
     ),
