@@ -1,6 +1,7 @@
 {% ckan_extends %}
 
 {% block package_basic_fields_custom %}
+  {{ super() }}
   {% set disabled = not (data.id and data.state == "active") %}
   {% set attrs = {'disabled': true} if disabled else {} %}
   {% call form.checkbox('share_internally', label=_('Share this dataset internally with SMDH data scientists'), id='field-share_internally', value="True", checked=data.share_internally, attrs=attrs) %}
