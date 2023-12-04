@@ -10,8 +10,6 @@ from .sharing_policy_repository import SharingPolicyRepository
 class SyncPackageSharingPolicyDataDict(TypedDict):
     package_id: dict
 
-import logging
-logger = logging.getLogger(__name__)
 
 def sync_package_sharing_policy(context, data: SyncPackageSharingPolicyDataDict):
     # lock the package for this update
@@ -20,7 +18,6 @@ def sync_package_sharing_policy(context, data: SyncPackageSharingPolicyDataDict)
 
     toolkit.check_access('package_show', context, show_package_data)
     package = toolkit.get_action('package_show')(dict(context, for_update=True), show_package_data)
-    logger.info("package: %s", package)
 
     toolkit.check_access('share_internally_update', context, package)
     toolkit.check_access('package_update', context, package)
@@ -30,8 +27,21 @@ def sync_package_sharing_policy(context, data: SyncPackageSharingPolicyDataDict)
         package[SHARE_INTERNALLY_FIELD] = False
 
     allow = package.get(SHARE_INTERNALLY_FIELD, False)
-    prefix = toolkit.h['get_package_cloud_storage_key'](package)
-    logger.info("sharing prefix: %s", prefix)
+    prefix = _package_prefix(package)
     repo = SharingPolicyRepository(config.iam_resources_prefix, config.bucket_name)
     with repo.sharing_policy(package_id, prefix) as policy:
         policy.update(allow)
+
+def convert_global_package_name_to_local(name: str):
+    converter = toolkit.h.get(convert_global_package_name_to_local.__name__, None)
+    return converter(name) if converter else name
+
+def _package_prefix(package):
+    """Returns a bucket prefix for the given package."""
+    # TODO convert this into a strategy (injected through the plugins system)
+    # so that multiple plugins can share the same strategy.
+    return os.path.join(
+        '1',
+        package['organization']['name'],
+        convert_global_package_name_to_local(package['name']),
+    )
