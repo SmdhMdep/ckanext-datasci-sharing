@@ -1,11 +1,14 @@
 import os
 from typing import TypedDict
+import logging
 
 from ckan.plugins import toolkit
 
 from .config import config, SHARE_INTERNALLY_FIELD
 from .sharing_policy_repository import SharingPolicyRepository
 
+
+logger = logging.getLogger(__name__)
 
 class SyncPackageSharingPolicyDataDict(TypedDict):
     package_id: dict
@@ -29,9 +32,9 @@ def sync_package_sharing_policy(context, data: SyncPackageSharingPolicyDataDict)
     if is_deleted:
         package[SHARE_INTERNALLY_FIELD] = False
 
-    allow = package.get(SHARE_INTERNALLY_FIELD, False)
+    allowed = package.get(SHARE_INTERNALLY_FIELD, False)
     prefix = toolkit.h['get_package_cloud_storage_key'](package)
-    logger.info("sharing prefix: %s", prefix)
-    repo = SharingPolicyRepository(config.iam_resources_prefix, config.bucket_name)
-    with repo.sharing_policy(package_id, prefix) as policy:
-        policy.update(allow)
+    repo = SharingPolicyRepository(config.bucket.bucket_name, config.bucket)
+    org_title = package['organization']['title']
+    with repo.sharing_policy(org_title, package_id, prefix) as policy:
+        policy.allowed = allowed

@@ -1,24 +1,45 @@
 import typing as t
-from collections import abc
+import logging
 import json
 
 
-def _wrap_policy_document(value):
-    if isinstance(value, dict):
-        if value.get('Sid') is not None:
-            return _PolicyDocumentStatement(value)
-        return _PolicyDocumentDict(value)
-    if isinstance(value, list):
-        return _PolicyDocumentArray(value)
-    return value
+logger = logging.getLogger(__name__)
 
 
-_T = t.TypeVar('_T')
-_V = t.TypeVar('_V')
+class _ListExt:
+    """List extensions to support traversal of lists within a policy document."""
+    @staticmethod
+    def first_where(array: t.List[t.Dict], **filter) -> t.Dict:
+        if len(filter) != 1:
+            raise ValueError('cannot filter by more than one property')
+
+        [(key, value)] = filter.items()
+        return next(element for element in array if element[key] == value)
+
+    @staticmethod
+    def single(value: t.Union[str, list]) -> t.Any:
+        if isinstance(value, str):
+            return value
+        elif len(value) != 1:
+            raise ValueError("expected a single element")
+        else:
+            return value[0]
+
+    @staticmethod
+    def as_list(value: t.Union[str, list]) -> list:
+        """
+        Safely access a value that can be either a list of strings or a string as a list.
+
+        This is useful because AWS policy elements allows a value to be either a list or a single value,
+        even if that value was previously written as a list.
+        """
+        if isinstance(value, str):
+            return [value]
+        return value
 
 
 class PolicyDocumentSizeLimitExceeded(Exception):
-    _POLICY_DOCUMENT_SIZE_LIMIT = 6 * 1024 # 6 KB
+    _POLICY_DOCUMENT_SIZE_LIMIT = 20 * 1024  # 20 KB
 
     def __init__(self):
         super().__init__(f"policy document size limit exceeded")
@@ -29,125 +50,76 @@ class PolicyDocumentSizeLimitExceeded(Exception):
             raise PolicyDocumentSizeLimitExceeded()
 
 
-class _PolicyDocumentBase(abc.Sized, t.Generic[_T]):
-    __slots__ = ('_data',)
-
-    def __init__(self, data: _T):
-        self._data = data
-
-    def unwrap(self) -> _T:
-        return self._data
-
-    def __len__(self):
-        return len(self._data)
-
-    def __repr__(self):
-        return f"<{type(self).__name__} {self._data}>"
+_PACKAGES_LISTING_SID = 'A'
+_PACKAGES_ACTIONS_SID = 'B'
 
 
-class _PolicyDocumentDict(abc.Mapping, _PolicyDocumentBase[dict]):
-    def __getitem__(self, key):
-        return _wrap_policy_document(self._data[key])
+class SharingPolicyDocument:
+    """A wrapper for the policy document of an access point providing operations
+    for adding shared prefixes to the policy.
+    """
+    __slots__ = ('_document', 'access_point_name')
 
-    def __iter__(self):
-        return iter(self._data)
+    def __init__(self, document, access_point_name):
+        self._document = document
+        self.access_point_name = access_point_name
 
+    @classmethod
+    def new(cls, region: str, account_id: str, access_point_name: str) -> 'SharingPolicyDocument':
+        document = _new_policy_document(region, account_id, access_point_name)
+        return cls(document, access_point_name)
 
-class _PolicyDocumentArray(abc.Sequence, _PolicyDocumentBase[t.List[_V]], t.Generic[_T, _V]):
-    def first_where(self, **kwargs) -> _T:
-        if len(kwargs) != 1:
-            raise ValueError('cannot filter by more than one property')
-        [(key, value)] = kwargs.items()
-        return next(
-            element for element in self
-            if element[key] == value
-        )
+    def _statements(self):
+        return self._document['Statement']
 
-    def single(self) -> _T:
-        if len(self) != 1:
-            raise ValueError("expected a single element")
-        return self[0]
+    def _statement(self, sid: str):
+        return _ListExt.first_where(self._statements(), Sid=sid)
 
-    def __getitem__(self, index) -> _T:
-        return _wrap_policy_document(self._data[index])
-
-    def __iter__(self):
-        for item in self._data:
-            yield _wrap_policy_document(item)
-
-
-_BUCKETS_LISTING_SID = 'A'
-_PACKAGES_LISTING_SID = 'B'
-_PACKAGES_ACTIONS_SID = 'C'
-
-
-class SharingPolicyDocument(_PolicyDocumentDict):
-    __slots__ = ('_data', 'handle')
-
-    def __init__(self, data, handle):
-        super().__init__(data)
-        self.handle = handle
-
-    @staticmethod
-    def new(bucket_name: str, handle: str) -> 'SharingPolicyDocument':
-        return _new_policy_document_object(bucket_name, handle)
-
-    def bucket_arn(self) -> str:
-        return self._statement(_PACKAGES_LISTING_SID).resources().single()
+    def access_point_arn(self) -> str:
+        """The root resource ARN. This is the ARN of the resource this policy is attached to."""
+        return _ListExt.single(self._statement(_PACKAGES_LISTING_SID)['Resource'])
 
     def size(self) -> int:
         """Returns the count of characters within the document excluding whitespace."""
-        return len(json.dumps(self._data, separators=(',', ':')))
-
-    def _raise_for_size(self):
-        """Ensures that the document size limit has not been exceeded."""
-        PolicyDocumentSizeLimitExceeded.check(self)
+        return len(json.dumps(self._document, separators=(',', ':')))
 
     def as_json(self):
-        return json.dumps(self._data)
-
-    def allow_buckets_listing(self):
-        """Add a statement to allow listing buckets within AWS console."""
-        self._statements().unwrap().insert(0, _BUCKETS_LISTING_STATEMENT)
+        return json.dumps(self._document)
 
     def update_prefix(self, prefix: str, allow: bool):
-        listing = self._statement(_PACKAGES_LISTING_SID)
-        prefixes_set = set(listing.prefixes_condition())
+        listing_stmt = self._statement(_PACKAGES_LISTING_SID)
+        prefixes_set = set(_ListExt.as_list(listing_stmt['Condition']['StringLike']['s3:prefix']))
         prefixes_chain = self._prefixes_chain_from_prefix(prefix)
         if allow:
             prefixes_set.update(prefixes_chain)
         else:
-            # only remove the prefix (and the "catch all" prefix for sub-prefixes)
-            # for the package itself because prefixes before the package may be
-            # common with other shared packages
-            prefixes_set.difference_update(prefixes_chain[-2:])
-        listing.prefixes_condition().unwrap()[:] = prefixes_set
+            # only remove the prefix for the package itself because prefixes
+            # before the package may be common with other shared packages
+            prefixes_set.difference_update(prefixes_chain[-1:])
+        listing_stmt['Condition']['StringLike']['s3:prefix'] = list(prefixes_set)
 
-        actions = self._statement(_PACKAGES_ACTIONS_SID)
-        resources_set = set(actions.resources())
+        actions_stmt = self._statement(_PACKAGES_ACTIONS_SID)
+        resources_set = set(_ListExt.as_list(actions_stmt['Resource']))
         if allow:
-            resources_set.add(self._resource_arn_from_prefix(prefix))
-            resources_set.discard(self._null_resource())
+            resources_set.add(self._prefix_objects_arn(prefix))
+            resources_set.discard(_null_object(self.access_point_arn()))
         else:
-            resources_set.discard(self._resource_arn_from_prefix(prefix))
+            resources_set.discard(self._prefix_objects_arn(prefix))
             if not resources_set:
-                resources_set.add(self._null_resource())
-        actions.resources().unwrap()[:] = list(resources_set)
+                resources_set.add(_null_object(self.access_point_arn()))
+        actions_stmt['Resource'] = list(resources_set)
 
-        self._raise_for_size()
+        logger.debug(json.dumps(self._document, indent=4))
 
-    def _statements(self) -> '_PolicyDocumentStatementArray':
-        return self['Statement']
+        PolicyDocumentSizeLimitExceeded.check(self)
 
-    def _statement(self, sid: str) -> '_PolicyDocumentStatement':
-        return self._statements().first_where(Sid=sid)
-
-    def _resource_arn_from_prefix(self, prefix: str) -> str:
-        return f'{self.bucket_arn()}/{prefix}/*'
+    def _prefix_objects_arn(self, prefix: str) -> str:
+        """ARN for all objects within the provided `prefix`"""
+        return f'{self.access_point_arn()}/object/{prefix}/*'
 
     def _prefixes_chain_from_prefix(self, prefix: str) -> t.List[str]:
         """
-        Returns slices of the prefix.
+        Convert a prefix into a traversable chain of prefixes.
 
         For example, the prefix `'/a/b/c'` will be converted into the list `['/a/', '/a/b/', '/a/b/c/*']`.
         """
@@ -158,66 +130,64 @@ class SharingPolicyDocument(_PolicyDocumentDict):
         prefixes[-1] = prefixes[-1] + '*'
         return prefixes
 
-    def _null_resource(self):
-        return _null_object(self.bucket_arn())
+
+_ALLOWED_PRINCIPAL_PATTERNS = [
+    "arn:aws:iam::{account_id}:role/*DataScientistRole",
+    "arn:aws:iam::{account_id}:role/service-role/*DataScientistServiceRole",
+    "arn:aws:iam::{account_id}:role/service-role/*",
+    "arn:aws:iam::{account_id}:role/aws-service-role/*",
+    "arn:aws:iam::{account_id}:user/data-scientist/*",
+]
 
 
-class _PolicyDocumentStatement(_PolicyDocumentDict):
-    def resources(self) -> '_PolicyDocumentStringArray':
-        return self['Resource']
+def _new_policy_document(region: str, account_id: str, access_point_name: str) -> dict:
+    access_point_arn = f'arn:aws:s3:{region}:{account_id}:accesspoint/{access_point_name}'
+    principal_arns = [
+        principal.format(account_id=account_id)
+        for principal in _ALLOWED_PRINCIPAL_PATTERNS
+    ]
 
-    def prefixes_condition(self) -> '_PolicyDocumentStringArray':
-        return _PolicyDocumentStringArray(self._data['Condition']['StringLike']['s3:prefix'])
-
-
-_PolicyDocumentStringArray = _PolicyDocumentArray[str, str]
-_PolicyDocumentStatementArray = _PolicyDocumentArray[_PolicyDocumentStatement, dict]
-
-
-def _new_policy_document_object(bucket_name: str, handle: str) -> SharingPolicyDocument:
-    bucket_arn = f'arn:aws:s3:::{bucket_name}'
-    return SharingPolicyDocument({
-        'Version': '2012-10-17',
-        'Statement': [
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
             {
-                'Sid': _PACKAGES_LISTING_SID,
-                'Action': ['s3:ListBucket'],
-                'Effect': 'Allow',
-                'Resource': [bucket_arn],
-                'Condition': {
-                    'StringLike': {
-                        # add the package prefix. typically this is the package path prefix
-                        # i.e. {org_name}/ and {org_name}/{package_name}/*.
-                        # all of the prefixes leading to the package prefix must be included,
-                        # this is because users need to be able to list the content of
-                        # the prefix to be able to reach the package through the console.
-                        's3:prefix': [''],
-                        's3:delimiter': ['/'],
+                "Sid": _PACKAGES_LISTING_SID,
+                "Principal": {"AWS": "*"},
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket"],
+                "Resource": access_point_arn,
+                "Condition": {
+                    "StringLike": {
+                        "s3:prefix": [""],
+                        "s3:delimiter": ["/"],
+                    },
+                    "ArnLike": {
+                        "aws:PrincipalArn": principal_arns,
                     }
-                }
+                },
             },
             {
-                'Sid': _PACKAGES_ACTIONS_SID,
-                'Effect': 'Allow',
-                'Action': ['s3:*'],
-                'Resource': [
+                "Sid": _PACKAGES_ACTIONS_SID,
+                "Principal": {"AWS": "*"},
+                "Effect": "Allow",
+                "Action": ["s3:Get*"],
+                "Resource": [
                     # Since you can't have a statement with no resources, we add
                     # a dummy resource name for an object that does not exist.
-                    _null_object(bucket_arn),
+                    _null_object(access_point_arn),
                     # add the resources shared. typically this is the bucket arn with the
                     # package path prefix and /* ({org_name}/{package_name}/*) to allow
                     # access to all resources within the package.
                 ],
+                "Condition": {
+                    "ArnLike": {
+                        "aws:PrincipalArn": principal_arns,
+                    }
+                }
             },
-        ]
-    }, handle)
+        ],
+    }
 
-def _null_object(bucket_arn: str) -> str:
-    return f'{bucket_arn}/__null_object__'
 
-_BUCKETS_LISTING_STATEMENT = {
-    'Sid': _BUCKETS_LISTING_SID,
-    'Action': ['s3:ListAllMyBuckets', 's3:GetBucketLocation'],
-    'Effect': 'Allow',
-    'Resource': ['arn:aws:s3:::*'],
-}
+def _null_object(access_point_arn: str) -> str:
+    return f'{access_point_arn}/object/__null_object__'
