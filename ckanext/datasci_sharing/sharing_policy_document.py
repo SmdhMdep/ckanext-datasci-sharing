@@ -119,7 +119,7 @@ class SharingPolicyDocument:
 
     def _prefixes_chain_from_prefix(self, prefix: str) -> t.List[str]:
         """
-        Convert a prefix into a traversable chain of prefixes.
+        Convert a prefix into a traversable chain of s3 prefixes.
 
         For example, the prefix `'/a/b/c'` will be converted into the list `['/a/', '/a/b/', '/a/b/c/*']`.
         """
@@ -132,11 +132,10 @@ class SharingPolicyDocument:
 
 
 _ALLOWED_PRINCIPAL_PATTERNS = [
-    "arn:aws:iam::{account_id}:role/*DataScientistRole",
-    "arn:aws:iam::{account_id}:role/service-role/*DataScientistServiceRole",
+    "arn:aws:iam::{account_id}:role/*DataSciRole",
     "arn:aws:iam::{account_id}:role/service-role/*",
     "arn:aws:iam::{account_id}:role/aws-service-role/*",
-    "arn:aws:iam::{account_id}:user/data-scientist/*",
+    "arn:aws:iam::{account_id}:user/data-sci/*",
 ]
 
 
@@ -175,8 +174,8 @@ def _new_policy_document(region: str, account_id: str, access_point_name: str) -
                     # Since you can't have a statement with no resources, we add
                     # a dummy resource name for an object that does not exist.
                     _null_object(access_point_arn),
-                    # add the resources shared. typically this is the bucket arn with the
-                    # package path prefix and /* ({org_name}/{package_name}/*) to allow
+                    # add the resources shared. typically this is the access point objects arn
+                    # with the package path prefix and /* ({org_name}/{package_name}/*) to allow
                     # access to all resources within the package.
                 ],
                 "Condition": {
