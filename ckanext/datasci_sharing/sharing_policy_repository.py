@@ -12,6 +12,7 @@ from .model import PackageSharingPolicy
 from .distributed_lock import distributed_lock
 from .sharing_policy_document import SharingPolicyDocument
 from .sharing_policy_record import SharingPolicyRecord
+from .utils import retry
 
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,13 @@ def _create_boto3_session():
         aws_secret_access_key=config.aws_secret_access_key,
         **config.aws_session_options,
     )
+
+
+class SharingNotAvailable(Exception):
+    """Exception raised when sharing is not available yet and should be retried
+    at a later time.
+    """
+    pass
 
 
 class ShortOrganizationNameStrategy:
@@ -76,7 +84,20 @@ class AccessPointService:
             if e.response['Error']['Code'] != 'AccessPointAlreadyOwnedByYou':
                 raise
 
-    def update(self, name, policy: dict):
+    def update(self, name: str, policy: dict):
+        try:
+            self._update_with_retry(name, policy)
+            return True
+        except BotoClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchAccessPoint':
+                # TODO verify that this is the case
+                # can happen even if the access point was created previously,
+                # due to AWS eventually consistent API behavior.
+                return False
+            raise
+
+    @retry(2, backoff=2)
+    def _update_with_retry(self, name: str, policy: dict):
         self._s3_control.put_access_point_policy(
             AccountId=self.account_id,
             Name=name,
@@ -114,9 +135,10 @@ class SharingPolicyRepository:
         return policy
 
     def _save_document(self, policy: SharingPolicyDocument):
-        self._ap_service.update(policy.access_point_name, policy.as_json())
+        if not self._ap_service.update(policy.access_point_name, policy.as_json()):
+            raise SharingNotAvailable()
 
-    def _get_policy(self, package_id, package_prefix) -> SharingPolicyRecord:
+    def _get_policy_record(self, package_id, package_prefix) -> SharingPolicyRecord:
         policy_entity = PackageSharingPolicy.get_or_default(package_id, for_update=True)
         record = SharingPolicyRecord(package_prefix, policy_entity)
         if record.handle and ":" in record.handle:
@@ -126,7 +148,7 @@ class SharingPolicyRepository:
 
     @contextmanager
     def sharing_policy(self, org_title: str, package_id: str, package_prefix: str) -> Iterator[PackageSharingPolicy]:
-        policy = self._get_policy(package_id, package_prefix)
+        policy = self._get_policy_record(package_id, package_prefix)
 
         yield policy
 

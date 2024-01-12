@@ -3,7 +3,7 @@ from typing import TypedDict
 from ckan.plugins import toolkit
 
 from .config import config, SHARE_INTERNALLY_FIELD
-from .sharing_policy_repository import SharingPolicyRepository
+from .sharing_policy_repository import SharingPolicyRepository, SharingNotAvailable
 
 
 class SyncPackageSharingPolicyDataDict(TypedDict):
@@ -31,5 +31,10 @@ def sync_package_sharing_policy(context, data: SyncPackageSharingPolicyDataDict)
     prefix = toolkit.h['get_package_cloud_storage_key'](package)
 
     repo = SharingPolicyRepository(config.bucket.bucket_name, config.bucket)
-    with repo.sharing_policy(org_title, package_id, prefix) as policy:
-        policy.allowed = allowed
+    try:
+        with repo.sharing_policy(org_title, package_id, prefix) as policy:
+            policy.allowed = allowed
+    except SharingNotAvailable:
+        raise toolkit.ValidationError([
+            "cannot share package currently, please try again later."
+        ])
